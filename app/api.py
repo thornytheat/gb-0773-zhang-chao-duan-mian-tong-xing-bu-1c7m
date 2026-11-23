@@ -1,9 +1,11 @@
+from urllib.parse import quote
+
 from flask import Blueprint, current_app, jsonify, request
 
 from app.errors import TideError
 from app.flow import STEPS, calculate
 from app.modules.journal.service import record
-from app.modules.proof.service import issue
+from app.modules.proof.service import issue, issue_vessel, verify_vessel
 from app.source import load_sources
 
 api = Blueprint('api', __name__, url_prefix='/api')
@@ -48,8 +50,33 @@ def repeat_journal(key):
     return jsonify(record(journal(), sources, manifest))
 
 
+def _attachment(filename):
+    return {'Content-Disposition':
+            f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"}
+
+
+@api.get('/export/<key>/vessel/<vessel>')
+def export_vessel(key, vessel):
+    """向船方签发：只含该船可验真凭据，别船资料不随证。"""
+    receipt, sources, reports = journal().get(key)
+    proof = issue_vessel(receipt, sources, reports, vessel)
+    response = jsonify(proof)
+    response.headers.update(_attachment(f'tide-{key[:12]}-{vessel}.json'))
+    return response
+
+
+@api.post('/export/verify')
+def verify_export():
+    proof = request.get_json(silent=True)
+    if not isinstance(proof, dict):
+        raise TideError('BAD_PROOF', '请提交船级凭据 JSON')
+    recompute = request.args.get('recompute') in ('1', 'true', 'yes')
+    return jsonify(verify_vessel(proof, recompute=recompute))
+
+
 @api.get('/export/<key>')
 def download(key):
+    """港方留底：整批原件与全船结论，仅港方工作台使用，不发给船方。"""
     response = jsonify(issue(*journal().get(key)))
-    response.headers['Content-Disposition'] = f'attachment; filename="tide-{key[:12]}.json"'
+    response.headers.update(_attachment(f'tide-archive-{key[:12]}.json'))
     return response

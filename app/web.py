@@ -8,7 +8,7 @@ from app.config import RULES
 from app.errors import TideError
 from app.flow import calculate
 from app.modules.journal.service import record
-from app.modules.proof.service import issue
+from app.modules.proof.service import issue, issue_vessel
 from app.reasons import REASONS
 from app.source import load_sources
 
@@ -35,9 +35,10 @@ def desk(chapter='coverage'):
     vessel = request.args.get('vessel', next(iter(reports['coverage']['ships'])))
     if vessel not in reports['coverage']['ships']:
         raise TideError('NO_VESSEL', '找不到该船期', 404)
-    proof = issue(receipt, sources, reports) if chapter == 'proof' else None
+    proof = issue_vessel(receipt, sources, reports, vessel) if chapter == 'proof' else None
     return render_template('base.html', chapter=chapter, chapters=CHAPTERS, states=STATES, sample=sample,
                            receipt=receipt, key=key, reports=reports, vessel=vessel, reason=REASONS,
                            gauge_fill=min(100, float(Fraction(reports['windows'][vessel]['order']['threshold_m'])) * 25),
                            seal=proof['seal_sha256'] if proof else None, time=instant, rule=RULES,
+                           anchors=proof['anchors'] if proof else None,
                            history=journal().list() if chapter == 'journal' else [])
